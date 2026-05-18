@@ -52,9 +52,10 @@
     Num : natural natural -> boolean  
     [(Num 0 x) (raise "bitwidth cannot be 0")]
     ;; CHECK OF WHETHER SIZE FITS WITHIN 32/64 BITS
-    [(Num size x) true
-     (side-condition ,(< (term i) (expt 2 (term size))))
+    [(Num size x) (true)
      (side-condition ,(< (term size) 32))
+     (side-condition ,(< (term i) (expt 2 (term size))))
+     
     ]
     [(Num size x) (raise "Size cannot be larger than 32")
      (side-condition ,(>= (term size) 32))
