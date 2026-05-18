@@ -53,12 +53,12 @@
     [(Num 0 x) (raise "bitwidth cannot be 0")]
     ;; CHECK OF WHETHER SIZE FITS WITHIN 32/64 BITS
     [(Num size x) (true)
-     (side-condition ,(< (term size) 32))
-     (side-condition ,(< (term i) (expt 2 (term size))))
+     (side-condition (< (term size) 32))
+     (side-condition (< (term x) (expt 2 (term size)))) ; 'x' used to be 'i' but I'm guessing that was a mistake.
      
     ]
     [(Num size x) (raise "Size cannot be larger than 32")
-     (side-condition ,(>= (term size) 32))
+     (side-condition (>= (term size) 32))
     ]
 
     [(Num size x) (false)]
@@ -68,8 +68,8 @@
     is_Name : string -> boolean
 
     [(is_Name str) true
-     (side-condition ,(> (string-length str) 1))
-     (side-condition ,(string=? (substring str 0 1) "%"))
+     (side-condition (> (string-length (term str) 1)))
+     (side-condition (string=? (substring (term str) 0 1) "%"))
     ]
     [(is_Name str) false]
 )
