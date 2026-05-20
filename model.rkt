@@ -6,143 +6,161 @@
 
 (define-language FREEZE
     ; FIGURE 4
-    (stmt ::= (Name = inst) (br op Name Name) (store op op))
+    ; Building blocks
+    (var lbl ::= % string)
 
-    (inst ::= (binop attr op op) (conv op)(bitcast op) (select op op op) (icmp cond op op) (phi ty (op label) ...) 
-    (freeze op) (getelementptr op op ... op) (load op) (extractelement op const) (insertelement op op const))
+    (constant len index ::= natural)                ; every use needs a check of whether it fits within 16 bits
 
-    (cond ::= eq ne ugt uge slt sle)
+    (tbit ::= 0 1) ; true bit
 
-    (ty ::= (i sz) (ptr ty) ((i sz) ...) ((ptr ty) ...))
+    (bit ::= tbit 
+             poisonbit
+    )
 
-    ;(name nat_1 natural)
-    ;(name nat_2 natural)
+    (byte ::= (bit bit bit bit bit bit bit bit))
 
-    (binop ::= add udiv sdiv shl and or)
+    (bitvector ::= bit 
+                   (bit bit ...) 
+                   byte 
+                   (byte byte ...) 
+                   (byte byte) 
+                   ((byte byte) (byte byte) ...) 
+                   poison
+    )   ; Values stored in reg, mem stores only the bytes
 
-    (attr ::= nsw nuw exact)
 
-    (op ::= Name const poison)
+    ; Syntax
 
-    (conv ::= zext sext trunc)
+    (stmt ::= (var = inst)
+              (br label lbl) 
+              (br op label lbl label lbl)
+    )
 
-    ; NATURALS
-    (nat sz const len ::= natural)
+    (inst ::= (binop attr ty op op)
+              (conv ty op to op)
+              (bitcast ty op to ty)
+              (select op ty op op)
+              (icmp cond ty op op)
+              (phi ty [op lbl] [op lbl] ...)
+              (freeze ty op)
+              (getelementptr (ptr ty) op (ty op) (ty op) ...)
+              (extractelement (len x bty) op constant)
+              (insertelement (len x bty) op constant)
+              (load ty (ptr ty) op)
+              (store ty op (ptr ty) op)
+    )
+
+    (cond ::= eq
+              ne
+              ugt
+              uge 
+              slt 
+              sle 
+    )
+
+    (bty ::= i1 
+             i8
+             i16
+    )
+
+    (ty ::= bty 
+            (ptr bty)
+            (len x bty)
+            (ptr (len x bty))
+    )
+
+    (binop ::= add
+               udiv
+               sdiv
+               shl
+               and
+               or
+    )
+
+    (attr ::= noattr
+              nsw
+              nuw
+              exact
+    )
+
+    (op ::= var 
+            constant 
+            poison
+    )
+
+    (conv ::= zext
+              sext
+              trunc
+    )
     
+    (mem ::= ((index byte) ...))
 
-
-    ; SECTION 4.2
-    ;([isz] ::= )
-
-    ;([ptr ty]::= )
-
-    ;([sz x ty] ::= )  TODO
-
-    ;(Mem ::= () ...)  TODO
-
-    ; TODO: side-condition for Name
-    (Name ::= string)
-
-
-    
-    
-    
-
-    (Reg ::= ((Name (ty v)) ...))
-
-
-    
+    (reg ::= ((var (ty bitvector)) ...))  
 
     
 )
 
-; Num checks whether x ∈ Num(size)
-; TODO: size <= 32
-
 (define-metafunction FREEZE
-    Num : sz const -> boolean  
-    [(Num 0 x) (raise "bitwidth cannot be 0")]
-    ;; CHECK OF WHETHER SIZE FITS WITHIN 32 BITS
-    [(Num size x) (true)
-     (side-condition (< (term size) 32))
-     (side-condition (< (term x) (expt 2 (term size)))) ; 'x' used to be 'i' but I'm guessing that was a mistake.
-     
+    is_valid_ptr : index -> boolean
+
+    [(is_valid_ptr index) (true)
+    (side-condition (< (term index) (expt 2 16)))
     ]
-    [(Num size x) (raise "Size cannot be larger than 32")
-     (side-condition (>= (term size) 32))
+    [(is_valid_ptr _) (false)]
+)
+
+(define-metafunction FREEZE
+    lookup_reg_val : reg var -> bitvector
+
+    [(lookup_reg_val () var) 
+    (raise ,(printf "Could not find a variable ~a in the register file" (term var)))] 
+
+    ; Found the bitvector
+    [(lookup_reg_val ((var_1 (ty_1 bitvector_1)) (var_2 (ty_2 bitvector_2)) ...) var_1)
+    (bitvector_1)]
+
+    ; Non-empty reg, not the correct name
+    [(lookup_reg_val (((var_1) (ty_1 bitvector_1)) (var_2 (ty_2 bitvector_2)) ... ) var_3) 
+    (lookup_reg_val ((var_2 (ty_2 bitvector_2)) ...) var_3)
     ]
-
-    [(Num size x) (false)]
 )
 
-    ; is_Name checks whether a string refers to a variable. 
 (define-metafunction FREEZE
-    is_Name : string -> boolean
+    lookup_reg_ty : reg var -> ty
 
-    [(is_Name str) true
-     (side-condition (> (string-length (term str) 1)))
-     (side-condition (string=? (substring (term str) 0 1) "%"))
+    [(lookup_reg_ty () var) 
+    (raise ,(printf "Could not find a variable ~a in the register file" (term var)))] 
+
+    ; Found the bitvector
+    [(lookup_reg_ty ((var_1 (ty_1 bitvector_1)) (var_2 (ty_2 bitvector_2)) ...) var_1)
+    (ty_1)]
+
+    ; Non-empty reg, not the correct name
+    [(lookup_reg_ty (((var_1) (ty_1 bitvector_1)) (var_2 (ty_2 bitvector_2)) ... ) var_3) 
+    (lookup_reg_val ((var_2 (ty_2 bitvector_2)) ...) var_3)
     ]
-    [(is_Name str) false]
 )
 
-
 (define-metafunction FREEZE
-    of_ty_isz : (i sz) any -> boolean
+    lookup_mem : mem index -> byte 
 
-    [(of_ty_isz (i sz) poison) true]
-    [(of_ty_isz (i sz) const) (true)
-     (side-condition (term (Num sz const)))
+    [(lookup_mem _ index) (raise ,(printf "~a is not a valid pointer" (term index)))
+    (side-condition (term (valid_ptr index)))
     ]
-
-    [(of_ty_isz (i sz) x) false]
-)
-
-(define-metafunction FREEZE
-    of_ty_ptr : (ptr ty) any -> boolean
-
-
-    ; TODO check the validity of a type
-    [(of_ty_ptr (ptr ty) poison) true]
-    [(of_ty_ptr (ptr ty) const) (true)
-     (side-condition (term (Num 32 const)))
-    ]
-    [(of_ty_ptr _ _) false]
-)
-
-(define-metafunction FREEZE
-    of_ty_vec_ptr : ((ptr ty) ...) len any -> boolean
-
-    ; TODO
-    [(of_ty_vec_ptr)]
-)
-
-(define-metafunction FREEZE
-    of_ty_vec_isz : ((ptr ty) ...) any -> boolean
-
-    ; TODO
-)
-(define-metafunction FREEZE
-    of_ty_trans : ty -> (ty -> bool)
-
-    ;; TODO CLEANS UP THE MESS, 
-)
-
-(define-metafunction FREEZE
-    of_ty : ty any -> boolean
-    [(of_ty (i sz) x) (of_ty_isz x)
-     ; (side-condition ,(< (term sz) 32))
+    [(lookup_mem () index) (raise "Value in memory not initialized")
+    (side-condition (term (valid_ptr index)))
     ]
 
-    [(of_ty (ptr ty_1) x) (of_ty_ptr x)
-     ; (side-condition ,(< (term sz) 32))  !!! ty_1 must actually exist
-    ]
+    ; Found the value in memory
 
-    [(of_ty ((i sz) ... ) x) (of_ty_vec_isz x)]
+    [(lookup_mem ((index_1 byte_1) (index_2 byte_2) ... ) index_1) (byte_1)] 
 
-    [(of_ty ((ptr ty) ... ) x) (of_ty_vec_ptr x)]
+    ; Still looking for the value in memory
+
+    [(lookup_mem ((index_1 byte_1) (index_2 byte_2) ... ) index__3) (lookup_mem ((index_2 byte_2) ...) index_3)]
 
 )
+
 
 
 
