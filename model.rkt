@@ -11,7 +11,9 @@
   
   ; FIGURE 4
   ; Building blocks
-  (var lbl ::= (% string))
+  (var ::= (% string))
+
+  (lbl ::= string)
 
   (constant len index ::= natural) ; every use needs a check of whether it fits within 16 bits
 
@@ -34,8 +36,10 @@
   ; Syntax
 
   (stmt ::= (var = inst)
-        (br label lbl) 
-        (br op label lbl label lbl))
+        (br label (% lbl)) 
+        (br op label (% lbl) label (% lbl))
+        (label lbl)
+        )
 
   (inst ::= (binop attr ty op op)
         (conv ty op to op)
@@ -48,7 +52,10 @@
         (extractelement (len x bty) op constant)
         (insertelement (len x bty) op constant)
         (load ty (ptr ty) op)
-        (store ty op (ptr ty) op))
+        (store ty op (ptr ty) op)
+        (ret void)
+        (ret ty op)
+    )
 
   (cond ::= eq
         ne
@@ -56,6 +63,7 @@
         uge 
         slt 
         sle)
+
   (sz ::= 1 8 16)
 
   (bty ::= (i sz))
@@ -64,6 +72,7 @@
       (ptr bty)
       (len x bty)
       (ptr (len x bty)))
+   ;: TODO retty if needed
 
   (binop ::= add
          udiv
@@ -86,8 +95,9 @@
   (vector ::= (bval ...))
 
   (val ::= bval vector)
-  
 
+  (retval ::= val void)
+  
   (conv ::= zext
         sext
         trunc)
@@ -96,7 +106,7 @@
 
   (reg ::= ((var (ty val)) ...))
 
-  (p ::= ((stmt ...) reg mem))
+  (p ::= (stmt ...))
   
   )
 
@@ -239,6 +249,38 @@
     ]
 )
 
+(define-metafunction FREEZE
+    find_lbl : p lbl -> p
+
+    [(find_lbl () lbl) (raise ,(printf "%s not found" (term lbl)))]
+
+    [(find_lbl ((label lbl) p_rest) lbl) p_rest]
+
+    [(find_lbl (stmt p_rest) lbl) (find_lbl p_rest lbl)]
+
+)
+(define-metafunction FREEZE
+    start : p -> (p reg mem lbl p) ;; start with main
+
+    [(start p) (start p_entry () () "entry" p)
+     (where p_entry (find_lbl p "entry"))
+    ]    ;; Memory uninitialized
+)
+
+(define-metafunction FREEZE
+    end : p reg mem lbl p -> (retty retval)
+
+    [(end () ((var (ty val)) ... ((% "retval") (ty_1 val_1)) ((var_2) (ty_2 val_2))...) _ _ _)
+     (ty_1 val_1)
+    ] ; % retval is present
+
+    [(end () _ _ _ _) (void void)]
+)
+
+
+
+
+
 (define -->R 
     (reduction-relation FREEZE
     
@@ -310,7 +352,6 @@
     (side-condition (term (type_match reg op_2 (i sz))))
     and]
 
-    ;; TODO add nuw, this model only has non-negative integers
     [--> (((var = (add nuw (i sz) op_1 op_2)) p) reg mem)
     (p ((var ((i sz) poison)) reg) mem)
 
@@ -356,10 +397,20 @@
     (side-condition (term (type_match reg op ty_1)))
     bitcast]
 
-    ;; TODO load
-
+    ;; TODO load     
 
     ;; TODO store
+
+    ;; Return
+    [--> (((ret void) p_rest) reg mem lbl p)
+         (() reg mem lbl p)  ; If there is no retval then the return type is void
+    ret_void]
+
+    [--> (((ret ty op) p_rest) reg mem lbl p)
+         (() (((% "retval") (ty v)) reg) mem lbl p)
+         (where v (lookup_reg_val op))
+         (side-condition (term (type_match reg op ty)))
+    ret_ty]
 
     ;; Additional rules
     )
