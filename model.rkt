@@ -175,9 +175,21 @@
 
 
 (define-metafunction FREEZE
-    type_match : reg op ty -> boolean
-    ;; TODO
-    [(type_match _ _ _) (#true)]
+  type_match : reg op ty -> boolean
+  [(type_match _ var _) ,(= (term ty) (term (lookup_reg_ty reg op)))]
+  [(type_match _ constant _) ,(= (term ty) (term (i 16)))]
+  [(type_match _ _ _) (raise "type_match error: passed poison")])
+
+(define-metafunction FREEZE
+    type_match_list : reg (op ...) ty -> boolean
+
+    [(type_match_list _ () _) (#true)]
+
+    [(type_match_list reg (op_1 op_2 ...) ty) (type_match_list reg (op_2 ...) ty)
+     (side-condition (term (type_match reg op_1 ty)))
+    ]
+
+    [(type_match_list _ _ _) (#false)]
 )
 
 (define-metafunction FREEZE
@@ -288,46 +300,60 @@
 
     ; freeze isz
 
-    [--> (((var = (freeze (i sz) op)) p) reg mem)
-     (p ((var ((i sz) ,(random (expt 2 (term sz))))) reg) mem)
+    [--> (((var = (freeze (i sz) op)) p_rest) reg mem lbl p)
+     (p_rest ((var ((i sz) ,(random (expt 2 (term sz))))) reg) mem lbl p)
      (side-condition (redex-match? FREEZE poison (term (lookup_reg_val reg op))))
     fr_poison]
 
-    [--> (((var = (freeze (i sz) op)) p) reg mem)
-     (p ((var ((i sz) (lookup_reg_val reg var))) reg) mem)
+    [--> (((var = (freeze (i sz) op)) p_rest) reg mem lbl p)
+     (p_rest ((var ((i sz) (lookup_reg_val reg var))) reg) mem lbl p)
      (side-condition (not(redex-match? FREEZE poison (term (lookup_reg_val reg op)))))
-     (side-condition (redex-match? FREEZE (term (i sz)) (term (lookup_reg_ty reg var))))
+     (side-condition (redex-match? FREEZE (term (i sz)) (term (lookup_reg_ty reg op))))
     fr]    
 
     ;; TODO freeze for vectors
 
-    ;; TODO phi, there needs to be a variable for the last visited label
 
-    [--> (((var = (select op_c ty _ _)) p) reg mem)
-     (p ((var (ty poison)) reg) mem)
+    [--> (((var = (phi ty ([op_1 lbl_1] ... [op lbl] [op_2 lbl_2] ...))) p_rest) reg mem lbl p)
+     (p_lbl ((var (ty val)) reg) mem lbl p)
+     (where val (lookup_reg_val reg op))
+     (where p_lbl (find_lbl p lbl))
+     (side-condition (term (type_match_list reg (op_1 ... op op_2 ...) ty)))
+    phi]
+
+    [--> (((var = (select op_c ty _ _)) p_rest) reg mem lbl p)
+     (p_rest ((var (ty poison)) reg) mem lbl p)
      (side-condition (redex-match? FREEZE poison (term (lookup_reg_val reg op_c))))
      (side-condition (term (type_match reg op_1 ty)))
      (side-condition (term (type_match reg op_2 ty)))
     sel_poison]
 
-    [--> (((var = (select op_c ty op_1 op_2)) p) reg mem)
-     (p ((var (ty (lookup_reg_val reg op_1))) reg) mem)
+    [--> (((var = (select op_c ty op_1 op_2)) p_rest) reg mem lbl p)
+     (p_rest ((var (ty val_1)) reg) mem lbl p)
+     
+     (where val_1 (lookup_reg_val reg op_1))
+     (where val_c (lookup_reg_val reg op_c)) ;; TODO
+
      (side-condition (redex-match? FREEZE (term 1) (term (lookup_reg_val reg op_c))))
      (side-condition (term (type_match reg op_1 ty)))
      (side-condition (term (type_match reg op_2 ty)))
+     
     sel_1]
 
-    [--> (((var = (select op_c ty op_1 op_2)) p) reg mem)
-     (p ((var (ty (lookup_reg_val reg op_2))) reg) mem)
+    [--> (((var = (select op_c ty op_1 op_2)) p_rest) reg mem lbl p)
+     (p_rest ((var (ty val_2)) reg) mem lbl p)
+
+     (where val_2 (lookup_reg_val reg op_2))
+
      (side-condition (redex-match? FREEZE (term 0) (term (lookup_reg_val reg op_c))))
      (side-condition (term (type_match reg op_1 ty)))
      (side-condition (term (type_match reg op_2 ty)))
+     
     sel_2]
 
-    ;; TODO and (binop attr ty op op)
 
-    [--> (((var = (and noattr (i sz) op_1 op_2)) p) reg mem)
-    (p ((var ((i sz) poison)) reg) mem)
+    [--> (((var = (and noattr (i sz) op_1 op_2)) p_rest) reg mem lbl p)
+    (p_rest ((var ((i sz) poison)) reg) mem lbl p)
 
     (side-condition 
         (or 
@@ -340,8 +366,12 @@
     
     and_poison]
     ; LLVM's and on integers is bitwise-and
-    [--> (((var = (and noattr (i sz) op_1 op_2)) p) reg mem)
-    (p ((var ((i sz) ,(bitwise-and (term (lookup_reg_val reg op_1)) (term (lookup_reg_val reg op_2))))) reg) mem)
+    [--> (((var = (and noattr (i sz) op_1 op_2)) p_rest) reg mem lbl p)
+    (p_rest ((var ((i sz) ,(bitwise-and (term val_1) (term val_2)))) reg) mem lbl p)
+
+    (where val_1 (lookup_reg_val reg op_1))
+    (where val_2 (lookup_reg_val reg op_2))
+
     (side-condition 
         (nor 
         (redex-match? FREEZE (term poison) (term (lookup_reg_val reg op_1)))
@@ -350,10 +380,11 @@
     )
     (side-condition (term (type_match reg op_1 (i sz))))
     (side-condition (term (type_match reg op_2 (i sz))))
+    
     and]
 
-    [--> (((var = (add nuw (i sz) op_1 op_2)) p) reg mem)
-    (p ((var ((i sz) poison)) reg) mem)
+    [--> (((var = (add nuw (i sz) op_1 op_2)) p_rest) reg mem lbl p)
+    (p_rest ((var ((i sz) poison)) reg) mem lbl p)
 
     (side-condition 
         (or 
@@ -366,8 +397,12 @@
     
     add_nuw_poison]
 
-    [--> (((var = (add nuw (i sz) op_1 op_2)) p) reg mem)
-    (p ((var ((i sz) ,(+ (term (lookup_reg_val reg op_1)) (term (lookup_reg_val reg op_2))))) reg) mem)
+    [--> (((var = (add nuw (i sz) op_1 op_2)) p_rest) reg mem lbl p)
+    (p_rest ((var ((i sz) ,(+ (term val_1) (term val_2)))) reg) mem lbl p)
+
+    (where val_1 (lookup_reg_val reg op_1))
+    (where val_2 (lookup_reg_val reg op_2))
+
     (side-condition 
         (nor 
         (redex-match? FREEZE (term poison) (term (lookup_reg_val reg op_1)))
@@ -379,8 +414,8 @@
     (side-condition (term (type_match reg op_2 (i sz))))
     add_nuw]
 
-    [--> (((var = (add nuw (i sz) op_1 op_2)) p) reg mem)
-    (p ((var ((i sz) ,(+ (term (lookup_reg_val reg op_1)) (term (lookup_reg_val reg op_2))))) reg) mem)
+    [--> (((var = (add nuw (i sz) op_1 op_2)) p_rest) reg mem lbl p)
+    (p_rest ((var ((i sz) poison)) reg) mem lbl p)
     (side-condition 
         (nor 
         (redex-match? FREEZE (term poison) (term (lookup_reg_val reg op_1)))
@@ -390,10 +425,13 @@
     (side-condition (term (overflows ,(+ (term (lookup_reg_val reg op_1)) (term (lookup_reg_val reg op_2))) (i sz))))
     (side-condition (term (type_match reg op_1 (i sz))))
     (side-condition (term (type_match reg op_2 (i sz))))
-    add_nuw_over]
+    add_nuw_over] ;; Overflow with nuw returns poison
 
-    [--> (((var = (bitcast ty_1 op to ty_2)) p) reg mem)
-    (p ((var (ty_2 (up_ty ty_2 (down_ty ty_1 (lookup_reg_val op))))) reg))
+    [--> (((var = (bitcast ty_1 op to ty_2)) p_rest) reg mem lbl p)
+    (p_rest ((var (ty_2 (up_ty ty_2 (down_ty ty_1 val)))) reg) mem lbl p)
+
+    (where val (lookup_reg_val reg op))
+
     (side-condition (term (type_match reg op ty_1)))
     bitcast]
 
@@ -411,6 +449,11 @@
          (where v (lookup_reg_val op))
          (side-condition (term (type_match reg op ty)))
     ret_ty]
+    ;; Branching (br label (% lbl)) 
+    [--> (((br label (% lbl_br)) p_1 )reg mem p lbl)
+         (p_rest reg mem p)
+         (where p_rest (find_lbl p lbl_br))
+    br_lbl]
 
     ;; Additional rules
     )
