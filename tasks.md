@@ -1,17 +1,8 @@
 #### Tasks:
 - [ ] Define the semantics of a non-dereferenceable pointer. Can be done by finding out whether the pointer is a result of a freeze.
-- [ ] `type_match` metafunction
-- [ ] Make the code simpler to read by adding `where` statements
-- [ ] Introduce last label into the program
-- [ ] Load and unload metafunctions
-- [ ] `overflows` metafunction
 - [ ] `up_ty` and `down_ty` for vectors
-- [ ] Carrying the rest of the program in reduction relations in order to do branching
 - [ ] `score` and `load` have to check alignment
-- [ ] `load` returns poison for unitialized variables. Can be achieved by initalizing memory with poison values
 - [ ] `br` reduction relation
 	- [ ] Case of poison
-	- [ ] Case of non-poison
-- [ ] Dealing with return
-	- [ ] `ret` instruction
-	- [ ] A field holding the `ret` value
+	- [x] Case of non-poison
+	- [ ] labels actually have to be checked

@@ -16,14 +16,14 @@
 
   (lbl ::= string)
 
-  (constant len index ::= natural) ; every use needs a check of whether it fits within 16 bits
+  (constant len index bw ::= natural) ; every use needs a check of whether it fits within 16 bits
 
   (tbit ::= 0 1) ; true bit
 
-  (bit ::= tbit 
-       poisonbit)
+  (bit ::= tbit poisonbit)
 
   (byte ::= (bit bit bit bit bit bit bit bit))
+  
 
   (bitvector ::= bit ; i1
              (bit bit ...) ; <len x i1> 
@@ -114,7 +114,7 @@
 
   (p ::= (stmt p) mt)
 
-  (state ::= (p reg mem lbl lbl p))
+  (state ::= (p reg mem lbl lbl p) UB)
   
   )
 
@@ -165,13 +165,11 @@
 
 
 (define-metafunction FREEZE
-  lookup_mem : mem index -> byte 
+  lookup_mem : mem index -> byte
   
   [(lookup_mem _ index) (raise ,(printf "~a is not a valid pointer" (term index)))
                         (side-condition (not (term (is_valid_ptr index))))]
-  
-  [(lookup_mem memmt index) (raise "Value in memory not initialized")
-  ]
+  [(lookup_mem memmt _) (poisonbit poisonbit poisonbit poisonbit poisonbit poisonbit poisonbit poisonbit)]
 
   ; Found the value in memory
 
@@ -202,9 +200,49 @@
 
 (define-metafunction FREEZE
     overflows : constant bty -> boolean
-    ;; TODO
 
     [(overflows constant (i sz)) ,(not (< (term constant) (expt 2 (term sz))))]
+)
+
+; LOAD helpers
+
+(define-metafunction FREEZE
+    aligns : val bw -> boolean
+
+    [(aligns index bw) ,(= 0 (modulo (term index) (term bw)))]
+
+    [(aligns _ _) #false]
+)
+
+(define-metafunction FREEZE
+    load_func : ty index mem -> val
+
+
+    [(load_func (i 1) index mem) (up_ty (i 1) ,(list-ref (term (lookup_mem mem val_start)) (term val_off)))
+     (where val_start ,(- (term index) (remainder (term index) 8)))
+     (where val_off ,(remainder (term index) 8))
+    ]
+
+    [(load_func (i 8) index mem) (up_ty (i 8) (lookup_mem mem index))
+    ]
+
+    [(load_func (i 16) index mem) (up_ty (i 16) ((lookup_mem mem index) (lookup_mem mem index_2)))
+     (where index_2 ,(+ 8 (term index)))
+    ]
+
+
+    ; TODO Load for vectors
+
+)
+
+(define-metafunction FREEZE
+    bitwidth : ty -> bw
+
+    [(bitwidth (i sz)) sz]
+
+    [(bitwidth (ptr _)) 16]
+
+    [(bitwidth _) (raise "case of bitwidth not implemented")]
 )
 
 (define-metafunction FREEZE
@@ -234,9 +272,9 @@
 (define-metafunction FREEZE
     up_ty : ty bitvector -> val
 
-    [(up_ty (i sz) val) (up_ty_isz (i sz) val)]
+    [(up_ty (i sz) bitvector) (up_ty_isz (i sz) bitvector)]
 
-    [(up_ty (ptr _) val) (up_ty_isz (i 16) val)]
+    [(up_ty (ptr _) bitvector) (up_ty_isz (i 16) bitvector)]
 
     ;; TODO for vectors
 )
@@ -289,12 +327,13 @@
 )
 
 (define-metafunction FREEZE
-    end : state -> (retty retval)
+    end : state -> (retty retval) or UB
+
+    [(end UB) UB]
 
     [(end (mt (((% "retval") (ty val)) reg) _ _ _ _))
      (ty val)
     ] ; retval is present
-
     [(end (mt ((var (ty val)) reg) mem lbl_1 lbl_2 p))
      (end (mt reg mem lbl_1 lbl_2 p))
     ]
@@ -448,7 +487,34 @@
     (side-condition (term (type_match reg op ty_1)))
     bitcast]
 
-    ;; TODO load     
+    ;; TODO load 
+
+    [--> (((var = (load ty (ptr ty) op)) p_rest) reg mem lbl_1 lbl_2 p) ;(load ty (ptr ty) op)
+         (p_rest ((var (ty (load_func ty (lookup_reg_val reg op) mem))) reg) mem lbl_1 lbl_2 p)
+
+         (side-condition (term (type_match reg op (ptr ty))))
+         (side-condition (term (aligns (lookup_reg_val reg op) (bitwidth ty))))
+         (side-condition (not (redex-match? FREEZE poison (term (lookup_reg_val reg op)))))
+         (side-condition (not (redex-match? FREEZE poison (term (load_func ty (lookup_reg_val reg op) mem)))))
+
+    load]
+
+    [--> (((var = (load ty (ptr ty) op)) p_rest) reg mem lbl_1 lbl_2 p) ;(load ty (ptr ty) op)
+         (p_rest ((var (ty (load_func ty (lookup_reg_val reg op) mem))) reg) mem lbl_1 lbl_2 p)
+
+         (side-condition (term (type_match reg op (ptr ty))))
+         (side-condition (term (aligns (lookup_reg_val reg op) (bitwidth ty))))
+         (side-condition (not (redex-match? FREEZE poison (term (lookup_reg_val reg op)))))
+         (side-condition (redex-match? FREEZE poison (term (load_func ty (lookup_reg_val reg op) mem))))
+
+    load_poison_val]
+
+    [--> (((var = (load ty (ptr ty) op)) p_rest) reg mem lbl_1 lbl_2 p) ;(load ty (ptr ty) op)
+         UB
+
+         (side-condition (term (type_match reg op (ptr ty))))
+         (side-condition (redex-match? FREEZE poison (term (lookup_reg_val reg op))))
+    load_poison_ptr]        
 
     ;; TODO store
 
@@ -487,10 +553,18 @@
          (side-condition (redex-match? FREEZE poison (term (lookup_reg_val reg op))))
     br_poison] 
 
+    [--> (((label lbl) p_rest) reg mem lbl_curr _ p)
+         (p_rest reg mem lbl lbl_curr p)
+    lbl]
     ;; Additional rules
     )
 
 )
 
 
-(traces -->R (term (start ((label "entry") (((% "val") = (add nuw (i 16) 65535 1)) ((ret (i 16) (% "val")) ((ret (i 16) (% "val")) mt)))))))
+
+(redex-match? FREEZE state (term (((label "entry")
+(((% "trig") = (load (i 16) (ptr (i 16)) (% "p_ptr") )) mt)) (((% "p_ptr") ((ptr (i 16)) poison)) regmt) memmt "" "" mt) ))
+;(traces -->R (term (start ((label "entry") (((% "val") = (add nuw (i 16) 65535 1)) ((ret (i 16) (% "val")) ((ret (i 16) (% "val")) mt)))))))
+(term (end ,(first (apply-reduction-relation* -->R (term (((label "entry") (((% "trig") = (load (i 16) (ptr (i 16)) (% "p_ptr") )) mt)) (((% "p_ptr") ((ptr (i 16)) poison)) regmt) memmt "" "" mt))))))
+(traces -->R (term (((label "entry") (((% "trig") = (load (i 16) (ptr (i 16)) (% "p_ptr") )) mt)) (((% "p_ptr") ((ptr (i 16)) poison)) regmt) memmt "" "" mt)))
