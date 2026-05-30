@@ -1,8 +1,13 @@
 #### Tasks:
-- [ ] Define the semantics of a non-dereferenceable pointer. Can be done by finding out whether the pointer is a result of a freeze.
+- [ ] Define the semantics of a non-dereferenceable pointer. A list of dereferenceable pointers???
 - [ ] `up_ty` and `down_ty` for vectors
-- [ ] `score` and `load` have to check alignment
+- [ ] `store`
+	- [ ] Base values
+	- [ ] Vectors
+- [ ] `load`
+	- [ ] Vectors
 - [ ] `br` reduction relation
 	- [ ] Case of poison
 	- [x] Case of non-poison
 	- [ ] labels actually have to be checked
+- [ ] Semantics for instructions present in examples to be shown
