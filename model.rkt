@@ -663,6 +663,12 @@
 ((label "false")
 ((ret (i 1) 0) mt)))))))))
 
+(traces -->R (term (start ((label "entry")((br 0 label (% "true") label (% "false"))
+((label "true")
+((ret (i 1) 1)
+((label "false")
+((ret (i 1) 0) mt)))))))))
+
 
 ;(br 1 label "true" label "false")
 ;(label "true")

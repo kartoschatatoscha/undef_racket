@@ -1,13 +1,17 @@
-#### Tasks:
-- [ ] Define the semantics of a non-dereferenceable pointer. A list of dereferenceable pointers???
+Define the semantics of a non-dereferenceable pointer. A list of dereferenceable pointers???
 - [ ] `up_ty` and `down_ty` for vectors
 - [ ] `store`
-	- [ ] Base values
+	- [x] Base values
 	- [ ] Vectors
 - [ ] `load`
 	- [ ] Vectors
 - [ ] `br` reduction relation
-	- [ ] Case of poison
+	- [x] Case of poison
 	- [x] Case of non-poison
-	- [ ] labels actually have to be checked
-- [ ] Semantics for instructions present in examples to be shown
+	- [ ] labels actually have to be checked (happens during find_lbl)
+	- [ ] LLVM is statically typed, so `type_match` and not all variables are in reg all the time, so phi type checks have to be independent of the register. Possibly a static pass beforehand
+	- [ ] `icmp`
+	- [ ] Ask Tommy regarding interpreting constants only as `i 16`
+	- [ ] Check on assignments that `retval` variable is reserved
+	- [ ] Ask Tommy regarding GVN
+	- [ ] Check if `and` works
