@@ -239,6 +239,20 @@
      (where index_2 ,(+ 8 (term index)))
     ]
 
+    [(load_func (len x bty) index mem)
+    ()
+    (side-condition (= 0 (term len)))
+    ]
+
+    [(load_func (len_1 x bty) index mem) ,(append (term ((load_func bty index mem))) (term (load_func (len_2 x bty) index_2 mem)))
+
+    ;(where val_load (load_func bty index mem))
+    (where index_2 ,(+ (term (bitwidth bty)) (term index)))
+    (where len_2 ,(- (term len_1) 1))
+    (side-condition (> (term len_1) 0))
+
+    ]
+
     [(load_func _ poison _) (raise "poison passed to load_func, not supposed to be the case!")]
 
     [(load_func _ vector _) (raise "vector passed to load_func, not supposed to be the case!")]
@@ -288,7 +302,7 @@
 
     [(has_poison poisonbit) #true]
 
-    [(has_poison (bit ... poisonbit bit ...)) #true]
+    [(has_poison (bit_1 ... poisonbit bit_2 ...)) #true]
 
     [(has_poison (byte_1 byte_2)) #true
      (side-condition (or (term (has_poison byte_1)) (term (has_poison byte_2))))
@@ -595,17 +609,31 @@
          (p_rest ((var (ty (load_func ty (lookup_reg_val reg op) mem))) reg) mem lbl_1 lbl_2 p nonderef)
 
          (side-condition (term (type_match reg op (ptr ty))))
+         (side-condition (redex-match? FREEZE bty (term ty)))
          (side-condition (term (aligns (lookup_reg_val reg op) (bitwidth ty)))) ; aligns is different for vectors, has to be only base types
          (side-condition (not (redex-match? FREEZE poison (term (lookup_reg_val reg op)))))
          (side-condition (not (redex-match? FREEZE poison (term (load_func ty (lookup_reg_val reg op) mem)))))
          (side-condition (false? (member (term op) (term nonderef))))
 
-    load]
+    load_isz]
+
+    [--> (((var = (load (len x bty) (ptr (len x bty)) op)) p_rest) reg mem lbl_1 lbl_2 p nonderef) ;(load ty (ptr ty) op)
+         (p_rest ((var ((len x bty) (load_func (len x bty) (lookup_reg_val reg op) mem))) reg) mem lbl_1 lbl_2 p nonderef)
+
+         (side-condition (term (type_match reg op (ptr (len x bty)))))
+         (side-condition (term (aligns (lookup_reg_val reg op) (bitwidth bty)))) ; aligns is different for vectors, has to be only base types
+         ; TODO there has to be enough memory
+         (side-condition (not (redex-match? FREEZE poison (term (lookup_reg_val reg op)))))
+         (side-condition (not (redex-match? FREEZE poison (term (load_func (len x bty) (lookup_reg_val reg op) mem)))))
+         (side-condition (false? (member (term op) (term nonderef))))
+
+    load_vector]
 
     [--> (((var = (load ty (ptr ty) op)) p_rest) reg mem lbl_1 lbl_2 p nonderef) ;(load ty (ptr ty) op)
          (p_rest ((var (ty (load_func ty (lookup_reg_val reg op) mem))) reg) mem lbl_1 lbl_2 p nonderef)
 
          (side-condition (term (type_match reg op (ptr ty))))
+         (side-condition (not (redex-match? FREEZE (len x bty) (term ty))))
          (side-condition (term (aligns (lookup_reg_val reg op) (bitwidth ty))))
          (side-condition (not (redex-match? FREEZE poison (term (lookup_reg_val reg op)))))
          (side-condition (redex-match? FREEZE poison (term (load_func ty (lookup_reg_val reg op) mem))))
@@ -688,7 +716,7 @@
     br_poison] 
 
     [--> (((label lbl) p_rest) reg mem lbl_curr _ p nonderef)
-         (p_rest reg mem lbl lbl_curr p)
+         (p_rest reg mem lbl lbl_curr p nonderef)
     lbl]
     ;; Additional rules
     )
@@ -859,25 +887,24 @@
 )
 )
 
+(define-term load_vec_p (
+    make_program (
+        (label "entry")
+        ((% "poison_vec") = (load (4 x (i 16)) (ptr (4 x (i 16))) (% "16")))
+    )
+)
 
-(traces -->R (term (freeze_ptr_p freeze_ptr_reg memmt "" "" mt ())))
-(redex-match? FREEZE state (term ((((% "ub")
-   =
-   (load
-    (i 16)
-    (ptr (i 16))
-    (% "c_fr")))
-  mt)
- (((% "c_fr")
-   ((ptr (i 16)) 47719))
-  (((% "poison")
-    ((ptr (i 16)) poison))
-   regmt))
- memmt
- ""
- ""
- mt
- ((% "c_fr")))))
+)
+(define-term load_vec_reg (
+    make_reg (
+        ((% "16") ((ptr (4 x (i 16))) 16))
+    )
+))
+
+(redex-match? FREEZE ((len x bty) index mem) (term ((4 x (i 16)) 16 memmt)))
+(term (lookup_mem memmt 16))
+;(term (has_poison (lookup_mem memmt 16)))
+(traces -->R (term (load_vec_p load_vec_reg memmt "" "" mt ())))
 (term (eval rev_pred_before))
 (term (eval rev_pred_after))
 
