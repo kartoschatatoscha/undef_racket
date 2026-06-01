@@ -457,7 +457,7 @@
 
         (where nonderef_2 ,(append (term (var)) (term nonderef)))
         (side-condition (redex-match? FREEZE poison (term (lookup_reg_val reg op))))
-        (side-condition (redex-match? FREEZE (term (ptr ty)) (term (lookup_reg_ty reg op))))
+        (side-condition (redex-match? FREEZE (ptr ty) (term (lookup_reg_ty reg op))))
     
     fr_ptr]  
 
@@ -598,7 +598,7 @@
          (side-condition (term (aligns (lookup_reg_val reg op) (bitwidth ty)))) ; aligns is different for vectors, has to be only base types
          (side-condition (not (redex-match? FREEZE poison (term (lookup_reg_val reg op)))))
          (side-condition (not (redex-match? FREEZE poison (term (load_func ty (lookup_reg_val reg op) mem)))))
-         (side-condition (not (member (term op))))
+         (side-condition (false? (member (term op) (term nonderef))))
 
     load]
 
@@ -609,6 +609,7 @@
          (side-condition (term (aligns (lookup_reg_val reg op) (bitwidth ty))))
          (side-condition (not (redex-match? FREEZE poison (term (lookup_reg_val reg op)))))
          (side-condition (redex-match? FREEZE poison (term (load_func ty (lookup_reg_val reg op) mem))))
+         (side-condition (false? (member (term op) (term nonderef))))
 
     load_poison_val]
 
@@ -617,7 +618,20 @@
 
          (side-condition (term (type_match reg op (ptr ty))))
          (side-condition (redex-match? FREEZE poison (term (lookup_reg_val reg op))))
-    load_poison_ptr]        
+    load_poison_ptr]   
+
+    [--> (((var = (load ty (ptr ty) op)) p_rest) reg mem lbl_1 lbl_2 p nonderef)
+        UB
+        (side-condition (term (type_match reg op (ptr ty))))
+        (side-condition (false? (false? (member (term op) (term nonderef)))))
+        
+    load_nonderef]
+    ;[--> (((var = (load ty (ptr ty) op)) p_rest) reg mem lbl_1 lbl_2 p nonderef)
+       ;UB
+      ;(side-condition (term (type_match reg op (ptr ty))))
+     ; (side-condition (not (term (aligns (lookup_reg_val reg op) (bitwidth ty)))))
+        
+    ;load_misaligned] 
 
     ;; TODO store
     [--> (((store bty op_1 (ptr bty) op_2) p_rest) reg mem lbl_1 lbl_2 p nonderef)
@@ -824,13 +838,46 @@
 (define-term freeze_val (
     make_program (
         (label "entry")
-        ((% "c") = (add nuw (i 16) 1 1 ))
+        ((% "c") = (add nuw (i 16) 1 1))
         ((% "c_fr") = (freeze (i 16) (% "c")))
         (ret (i 16) (% "c_fr"))
     )
 ))
 
 
+(define-term freeze_ptr_p (
+    make_program (
+        ((% "c_fr") = (freeze (ptr (i 16)) (% "poison")))
+        ((% "ub") = (load (i 16) (ptr (i 16)) (% "c_fr")))
+    )
+))
+
+(define-term freeze_ptr_reg (
+    make_reg (
+        ((% "poison") ((ptr (i 16)) poison))
+    )
+)
+)
+
+
+(traces -->R (term (freeze_ptr_p freeze_ptr_reg memmt "" "" mt ())))
+(redex-match? FREEZE state (term ((((% "ub")
+   =
+   (load
+    (i 16)
+    (ptr (i 16))
+    (% "c_fr")))
+  mt)
+ (((% "c_fr")
+   ((ptr (i 16)) 47719))
+  (((% "poison")
+    ((ptr (i 16)) poison))
+   regmt))
+ memmt
+ ""
+ ""
+ mt
+ ((% "c_fr")))))
 (term (eval rev_pred_before))
 (term (eval rev_pred_after))
 
