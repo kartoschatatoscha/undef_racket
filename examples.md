@@ -72,3 +72,32 @@
     label "end"
     ret (i 16) 0
     ```
+
+
+# Reverse predication
+
+### Original
+```
+label "entry"
+(% "c") = (add nuw (i 1) 1 1)
+(% "x") = (select (% "c") (i 16) 100 10)
+ret (i 16) (% "x")
+```
+
+### Transformed
+```
+label "entry"
+(% "c") = (add nuw (i 1) 1 1)
+(% "c2") = (freeze (i 1) (% "c"))
+br (% "c2") label (% "true") label (% "false")
+
+label "true"
+br label (% "merge")
+
+label "false"
+br label (% "merge")
+
+label "merge"
+(% "x") = (phi (i 16) [100 "true"] [10 "false"])
+ret (i 16) (% "x")
+```

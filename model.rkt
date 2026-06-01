@@ -377,7 +377,7 @@
 (define-metafunction FREEZE
     find_lbl : p lbl -> p
 
-    [(find_lbl mt lbl) (raise ,(printf "%s not found" (term lbl)))]
+    [(find_lbl mt lbl) (raise ,(printf "~a not found" (term lbl)))]
 
     [(find_lbl ((label lbl) p) lbl) p]
 
@@ -432,13 +432,13 @@
     ;; TODO freeze for vectors
 
 
-    [--> (((var = (phi ty ([op_1 lbl_1] ... [op lbl_prev] [op_2 lbl_2] ...))) p_rest) reg mem lbl_curr lbl_prev p)
+    [--> (((var = (phi ty [op_1 lbl_1] ... [op lbl_prev] [op_2 lbl_2] ...)) p_rest) reg mem lbl_curr lbl_prev p)
      (p_rest ((var (ty val)) reg) mem lbl_curr lbl_prev p)
      (where val (lookup_reg_val reg op))
      (side-condition (term (type_match reg op ty))) ; TODO all variables have to be checked
     phi]
 
-    [--> (((var = (select op_c ty _ _)) p_rest) reg mem lbl_1 lbl_2 p)
+    [--> (((var = (select op_c ty op_1 op_2)) p_rest) reg mem lbl_1 lbl_2 p)
      (p_rest ((var (ty poison)) reg) mem lbl_1 lbl_2 p)
      (side-condition (redex-match? FREEZE poison (term (lookup_reg_val reg op_c))))
      (side-condition (term (type_match reg op_1 ty)))
@@ -711,6 +711,47 @@
 
 )
 )
-   
-(traces -->R (term (start l_unsw_after)))
+
+(define-term rev_pred_before(
+    make_program (
+        (label "entry")
+        ((% "c") = (add nuw (i 1) 1 1))
+        ((% "x") = (select (% "c") (i 16) 100 10))
+        (ret (i 16) (% "x"))
+    )
+
+)
+
+)  
+(define-term rev_pred_after (
+    make_program (
+        (label "entry")
+        ((% "c") = (add nuw (i 1) 1 1))
+        ((% "c2") = (freeze (i 1) (% "c")))
+        (br (% "c2") label (% "true") label (% "false"))
+
+        (label "true")
+        (br label (% "merge"))
+
+        (label "false")
+        (br label (% "merge"))
+
+        (label "merge")
+        ((% "x") = (phi (i 16) [100 "true"] [10 "false"]))
+        (ret (i 16) (% "x"))
+    )
+)
+
+)
+;(traces -->R (term (start rev_pred_after)))
+
+(term (end ,(first (apply-reduction-relation* -->R (term (start rev_pred_after))))))
+(term (end ,(first (apply-reduction-relation* -->R (term (start rev_pred_after))))))
+
+(term (end ,(first (apply-reduction-relation* -->R (term (start rev_pred_after))))))
+
+(term (end ,(first (apply-reduction-relation* -->R (term (start rev_pred_after))))))
+
+(term (end ,(first (apply-reduction-relation* -->R (term (start rev_pred_after))))))
+
 
