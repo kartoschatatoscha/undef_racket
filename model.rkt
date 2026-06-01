@@ -6,6 +6,7 @@
 (require rebellion/binary/bitstring)
 (require rebellion/binary/byte)
 (require helpful)
+(require racket/match)
 
 
 (define-language FREEZE
@@ -121,6 +122,8 @@
 
 (define-metafunction FREEZE
   is_valid_ptr : index -> boolean
+
+  [(is_valid_ptr 0) #false]
 
   [(is_valid_ptr index) #true
                         (side-condition (< (term index) (expt 2 16)))]
@@ -384,6 +387,18 @@
     [(find_lbl (stmt p) lbl) (find_lbl p lbl)]
 
 )
+
+
+
+(define-metafunction FREEZE
+    piecewise_freeze : bty (bval ...) -> (bval ...)
+    [(piecewise_freeze (i sz) ()) ()]
+
+    [(piecewise_freeze (i sz) (constant bval ...)) ,(append (term (constant)) (term (piecewise_freeze (i sz) (bval ...))))]
+
+    [(piecewise_freeze (i sz) (poison bval ...)) ,(append (term (,(random (expt 2 (term sz))))) (term (piecewise_freeze (i sz) (bval ...))))]
+
+)
 (define-metafunction FREEZE
     start : p -> state ;; start with entry
 
@@ -427,10 +442,14 @@
      (p_rest ((var ((i sz) (lookup_reg_val reg var))) reg) mem lbl_1 lbl_2 p)
      (side-condition (not(redex-match? FREEZE poison (term (lookup_reg_val reg op)))))
      (side-condition (redex-match? FREEZE (term (i sz)) (term (lookup_reg_ty reg op))))
-    fr]    
+    fr_isz]    
 
     ;; TODO freeze for vectors
-
+    [--> (((var = (freeze (len x bty) op)) p_rest) reg mem lbl_1 lbl_2 p)
+    (p_rest ((var ((len x bty) (piecewise_freeze bty vector))) reg) mem lbl_1 lbl_2 p)
+    (side-condition (term (type_match reg op (len x bty))))
+    (where vector (lookup_reg_val reg op))
+    fr_vector]
 
     [--> (((var = (phi ty [op_1 lbl_1] ... [op lbl_prev] [op_2 lbl_2] ...)) p_rest) reg mem lbl_curr lbl_prev p)
      (p_rest ((var (ty val)) reg) mem lbl_curr lbl_prev p)
@@ -652,6 +671,22 @@
     [(make_program (stmt_1 stmt_2 ...)) (stmt_1 (make_program (stmt_2 ...)))]
 )
 
+(define-metafunction FREEZE
+    make_reg : ((var (ty val)) ...) -> reg
+
+    [(make_reg ()) regmt]
+
+    [(make_reg ((var_1 (ty_1 val_1)) (var_2 (ty_2 val_2)) ... )) ((var_1 (ty_1 val_1)) (make_reg ((var_2 (ty_2 val_2)) ...)))]
+)
+
+(define-metafunction FREEZE
+    make_mem : ((index byte) ...) -> mem
+
+    [(make_mem ()) memmt]
+
+    [(make_mem ((index_1 byte_1) (index_2 byte_2) ...)) ((index_1 byte_1) (make_mem ((index_2 byte_2) ...)))]
+)
+
 ;(redex-match? FREEZE state (term (((label "entry")
 ;(((% "trig") = (load (i 16) (ptr (i 16)) (% "p_ptr") )) mt)) (((% "p_ptr") ((ptr (i 16)) poison)) regmt) memmt "" "" mt) ))
 ;(traces -->R (term (start ((label "entry") (((% "val") = (add nuw (i 16) 65535 1)) ((ret (i 16) (% "val")) ((ret (i 16) (% "val")) mt)))))))
@@ -743,7 +778,41 @@
 )
 
 )
-;(traces -->R (term (start rev_pred_after)))
+
+(redex-match? FREEZE stmt (term ((% "x") = (freeze (4 x (i 16)) (% "fr")))))
+(define-term fr_vector_p (
+    make_program ( ((% "x") = (freeze (4 x (i 16)) (% "fr"))) )
+    
+)
+
+)
+(define-term fr_vector_reg(
+    make_reg(
+        ((% "fr") ((4 x (i 16)) (poison 43 poison 43)))
+    )
+)
+
+)
+(redex-match? FREEZE state (term ((((% "x")
+   =
+   (freeze
+    (4 x (i 16))
+    (% "fr")))
+  mt)
+ (((% "fr")
+   ((4 x (i 16))
+    (poison 43 poison 43)))
+  regmt)
+ mem
+ ""
+ ""
+ (((% "x")
+   =
+   (freeze
+    (4 x (i 16))
+    (% "fr")))
+  mt)) ))
+(traces -->R (term (fr_vector_p fr_vector_reg memmt "" "" fr_vector_p)))
 
 (term (end ,(first (apply-reduction-relation* -->R (term (start rev_pred_after))))))
 (term (end ,(first (apply-reduction-relation* -->R (term (start rev_pred_after))))))
@@ -754,4 +823,5 @@
 
 (term (end ,(first (apply-reduction-relation* -->R (term (start rev_pred_after))))))
 
+(term (piecewise_freeze (i 8) (poison poison)))
 
