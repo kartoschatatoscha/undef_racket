@@ -143,7 +143,7 @@
    val_1]
 
   ; Non-empty reg, not the correct name
-  [(lookup_reg_val (((var_1) (_ val_1)) reg) var_3) 
+  [(lookup_reg_val ((var_1 (_ val_1)) reg) var_3) 
    (lookup_reg_val reg var_3)])
 
 
@@ -160,8 +160,8 @@
    ty_1]
 
   ; Name does not match, still looking through reg
-  [(lookup_reg_ty (((var_1) (ty_1 _)) reg ) var_3) 
-   (lookup_reg_val reg var_3)])
+  [(lookup_reg_ty ((var_1 (ty_1 _)) reg ) var_3) 
+   (lookup_reg_ty reg var_3)])
 
 
 (define-metafunction FREEZE
@@ -183,9 +183,9 @@
 (define-metafunction FREEZE
   type_match : reg op ty -> boolean
   [(type_match reg var ty) ,(redex-match? FREEZE ty (term (lookup_reg_ty reg var)))]
-  ;[(type_match _ constant (i sz)) ,(< (term constant) (expt 2 (term sz)))]
-  ;[(type_match _ constant _) #false]
-  [(type_match _ constant ty) ,(redex-match FREEZE (i 16) (term ty))]
+  [(type_match _ constant (i sz)) ,(< (term constant) (expt 2 (term sz)))]
+  [(type_match _ constant _) #false]
+  ;[(type_match _ constant ty) ,(redex-match FREEZE (i 16) (term ty))]
   
   [(type_match _ poison _) (raise "type_match error: passed poison")])
 
@@ -618,14 +618,15 @@
     [--> (((br op label (% lbl_1) label (% lbl_2)) p_rest) reg mem lbl_curr _ p)
          (p_1 reg mem lbl_1 lbl_curr p)
          (where p_1 (find_lbl p lbl_1))
-         (side-condition (redex-match? FREEZE 1 (term (lookup_reg_val reg op))))
+         
+         (side-condition (and (not (redex-match? FREEZE poison (term (lookup_reg_val reg op)))) (not (zero? (term (lookup_reg_val reg op))))))
          (side-condition (term (type_match reg op (i 1))))
     br_1]
 
-    [--> (((br op label (% lbl_1) label (% lbl_2)) p_rest) reg mem lbl_curr _ p)
-         (p_2 reg mem lbl_1 lbl_curr p)
+    [--> (((br op label (% lbl_1) label (% lbl_2)) p_rest) reg mem lbl_curr lbl_prev p)
+         (p_2 reg mem lbl_2 lbl_curr p)
          (where p_2 (find_lbl p lbl_2))
-         (side-condition (redex-match? FREEZE 0 (term (lookup_reg_val reg op))))
+         (side-condition (and (not (redex-match? FREEZE poison (term (lookup_reg_val reg op)))) (zero? (term (lookup_reg_val reg op)))))
          (side-condition (term (type_match reg op (i 1))))
     br_2]
 
@@ -643,35 +644,73 @@
 
 )
 
+(define-metafunction FREEZE
+    make_program : (stmt ...) -> p
 
+    [(make_program ()) mt]
+
+    [(make_program (stmt_1 stmt_2 ...)) (stmt_1 (make_program (stmt_2 ...)))]
+)
 
 ;(redex-match? FREEZE state (term (((label "entry")
 ;(((% "trig") = (load (i 16) (ptr (i 16)) (% "p_ptr") )) mt)) (((% "p_ptr") ((ptr (i 16)) poison)) regmt) memmt "" "" mt) ))
 ;(traces -->R (term (start ((label "entry") (((% "val") = (add nuw (i 16) 65535 1)) ((ret (i 16) (% "val")) ((ret (i 16) (% "val")) mt)))))))
 ;(term (end ,(first (apply-reduction-relation* -->R (term (((label "entry") (((% "trig") = (load (i 16) (ptr (i 16)) (% "p_ptr") )) mt)) (((% "p_ptr") ((ptr (i 16)) poison)) regmt) memmt "" "" mt))))))
 ;(traces -->R (term (((store (i 16) 257 (ptr (i 16)) 0) mt) regmt memmt "" "" mt) ) )
+;(redex-match? FREEZE stmt (term (br (% "c2") label (% "then") label (% "else"))))
+(define-term l_unsw_before
+    (make_program 
+(
+    (label "entry")
+    ((% "c") = (add nuw (i 1) 0 0))
+    ((% "c2") = (add nuw (i 1) 1 1))
+    (br (% "c") label (% "while") label (% "end"))
 
-(redex-match? FREEZE p (term ((br 1 label (% "true") label (% "false"))
-((label "true")
-((ret (i 1) 1)
-((label "false")
-((ret (i 1) 0) mt)))))))
+    (label "while")
+    (br (% "c2") label (% "then") label (% "else"))
 
-(traces -->R (term (start ((label "entry")((br 0 label (% "true") label (% "false"))
-((label "true")
-((ret (i 1) 1)
-((label "false")
-((ret (i 1) 0) mt)))))))))
+    (label "then")
+    (ret (i 16) 2)
 
-(traces -->R (term (start ((label "entry")((br 0 label (% "true") label (% "false"))
-((label "true")
-((ret (i 1) 1)
-((label "false")
-((ret (i 1) 0) mt)))))))))
+    (label "else")
+    (ret (i 16) 1)
+
+    (label "end")
+    (ret (i 16) 0)
+)
+)
+)
 
 
-;(br 1 label "true" label "false")
-;(label "true")
-;(ret (i 1) 1)
-;(label "false")
-;(ret (i 1) 0)
+(define-term l_unsw_after(
+    make_program (
+    (label "entry")
+    ((% "c") = (add nuw (i 1) 0 0))
+    ((% "c2") = (add nuw (i 1) 1 1))
+    ((% "c_fr") = (freeze (i 1) (% "c2")))
+    (br label (% "if"))
+
+    (label "if")
+    (br (% "c_fr") label (% "then") label (% "else"))
+
+    (label "then")
+    (br (% "c") label (% "while_then") label (% "end"))
+
+    (label "else")
+    (br (% "c") label (% "while_else") label (% "end"))
+
+    (label "while_then")
+    (ret (i 16) 2)
+
+    (label "while_else")
+    (ret (i 16) 1)
+
+    (label "end")
+    (ret (i 16) 0)
+    )
+
+)
+)
+   
+(traces -->R (term (start l_unsw_after)))
+
