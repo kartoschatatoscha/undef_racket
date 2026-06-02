@@ -484,7 +484,7 @@
     [--> (((var = (freeze ty_op op)) p_rest) reg mem lbl_1 lbl_2 p nonderef)
      (p_rest ((var (ty_op (lookup_reg_val reg op))) reg) mem lbl_1 lbl_2 p nonderef)
      (side-condition (not(redex-match? FREEZE poison (term (lookup_reg_val reg op)))))
-     (side-condition (redex-match? FREEZE ty_op (term (lookup_reg_ty reg op))))
+     (side-condition (term (type_match reg op ty_op)))
     fr_val]  
 
     ;TODO freeze for pointers
@@ -494,7 +494,7 @@
 
         (where nonderef_2 ,(append (term (var)) (term nonderef)))
         (side-condition (redex-match? FREEZE poison (term (lookup_reg_val reg op))))
-        (side-condition (redex-match? FREEZE (ptr ty) (term (lookup_reg_ty reg op))))
+        (side-condition (term (type_match reg op (ptr ty))))
     
     fr_ptr]  
 
@@ -524,7 +524,7 @@
      (where val_1 (lookup_reg_val reg op_1))
      (where val_c (lookup_reg_val reg op_c)) ;; TODO
 
-     (side-condition (redex-match? FREEZE (term 1) (term (lookup_reg_val reg op_c))))
+     (side-condition (redex-match? FREEZE 1 (term (lookup_reg_val reg op_c))))
      (side-condition (term (type_match reg op_1 ty)))
      (side-condition (term (type_match reg op_2 ty)))
      
@@ -535,7 +535,7 @@
 
      (where val_2 (lookup_reg_val reg op_2))
 
-     (side-condition (redex-match? FREEZE (term 0) (term (lookup_reg_val reg op_c))))
+     (side-condition (redex-match? FREEZE 0 (term (lookup_reg_val reg op_c))))
      (side-condition (term (type_match reg op_1 ty)))
      (side-condition (term (type_match reg op_2 ty)))
      
@@ -806,12 +806,189 @@
 ;(term (end ,(first (apply-reduction-relation* -->R (term (((label "entry") (((% "trig") = (load (i 16) (ptr (i 16)) (% "p_ptr") )) mt)) (((% "p_ptr") ((ptr (i 16)) poison)) regmt) memmt "" "" mt))))))
 ;(traces -->R (term (((store (i 16) 257 (ptr (i 16)) 0) mt) regmt memmt "" "" mt) ) )
 ;(redex-match? FREEZE stmt (term (br (% "c2") label (% "then") label (% "else"))))
+
+
+
+;;;; PRESENTATION INSTRUCTIONS
+
+;; Freezing a poison value
+
+(define-term fr_pois_p (
+    make_program (
+        ((% "a") = (freeze (i 16) poison))
+    )
+))
+
+
+
+;(traces -->R (term (fr_pois_p regmt memmt "" "" mt ())))
+
+;; Freezing 432
+
+(define-term fr_nonpois_p (
+    make_program (
+        ((% "a") = (freeze (i 16) 432))
+    )
+))
+
+;(traces -->R (term (fr_nonpois_p regmt memmt "" "" mt ())))
+
+
+;; Freezing a poison pointer -> nondereferenceable
+
+(define-term fr_ptr_p (
+    make_program (
+        ((% "a") = (freeze (ptr (i 16)) poison))
+        ((% "b") = (load (i 16) (ptr (i 16)) (% "a")))
+    )
+))
+
+;(traces -->R (term (fr_ptr_p regmt memmt "" "" mt ())))
+
+
+;; add nuw overflow
+
+(define-term add_poison_p (
+    make_program (
+        ((% "a") = (add nuw (i 16) 65535 3))
+        (ret (i 16) (% "a"))
+    )
+)
+
+)
+
+;(traces -->R (term (add_poison_p regmt memmt "" "" mt ())))
+
+;; add nuw without overflow
+
+(define-term add_nonpoison_p (
+    make_program (
+        ((% "a") = (add nuw (i 16) 40 3))
+        (ret (i 16) (% "a"))
+    )
+)
+
+)
+
+;(traces -->R (term (add_nonpoison_p regmt memmt "" "" mt ())))
+
+
+;; select poison condition
+
+(define-term sel_poison_p (
+    make_program (
+        ((% "a") = (select poison (i 16) 10 20))
+        (ret (i 16) (% "a"))
+    )
+)
+
+)
+
+;(traces -->R (term (sel_poison_p regmt memmt "" "" mt ())))
+
+
+;; select first val
+
+(define-term sel_1_p (
+    make_program (
+        ((% "a") = (select 1 (i 16) 10 poison))
+        (ret (i 16) (% "a"))
+    )
+)
+
+)
+
+;(traces -->R (term (sel_1_p regmt memmt "" "" mt ())))
+
+;; select second val
+
+(define-term sel_2_p (
+    make_program (
+        ((% "a") = (select 0 (i 16) 10 poison))
+        (ret (i 16) (% "a"))
+    )
+)
+
+)
+;(traces -->R (term (sel_2_p regmt memmt "" "" mt ())))
+
+
+;; phi value and non-poison
+
+(define-term phi_poison (
+    make_program  (
+        (br label (% "second"))
+
+        (label "first")
+        (br label (% "end"))
+
+        (label "second")
+        (br label (% "end"))
+
+        (label "end")
+        ((% "a") = (phi (i 16) [1 "first"] [poison "second"]))
+    )
+)
+
+)
+
+;(traces -->R (term (phi_poison regmt memmt "" "" phi_poison ())))
+
+;; branching on poison is UB
+
+(define-term br_poison (
+    make_program (
+        (br poison label (% "first") label (% "second"))
+
+        (label "first")
+        (ret (i 16) 1)
+
+        (label "second")
+        (ret (i 16) 2)
+    )
+)
+
+)
+
+;(traces -->R (term (br_poison regmt memmt "" "" br_poison ())))
+
+(define-term br_nonpoison (
+    make_program (
+        (br 0 label (% "first") label (% "second"))
+
+        (label "first")
+        (ret (i 16) 1)
+
+        (label "second")
+        (ret (i 16) 2)
+    )
+)
+
+)
+
+;(traces -->R (term (br_nonpoison regmt memmt "" "" br_nonpoison ())))
+
+
+;;;; OPTIMIZATION EXAMPLES
+
+
+;; Loop unswitching original
+
+;   while(c){
+;        if(c2){
+;            return 2;
+;        }else{
+;            return 1;
+;        }
+;    }
+;    return 0;
+
 (define-term l_unsw_before
     (make_program 
 (
     (label "entry")
-    ((% "c") = (add nuw (i 1) 0 0))
-    ((% "c2") = (add nuw (i 1) 1 1))
+    ((% "c") = (add nuw (i 1) 0 0)) ; c is false
+    ((% "c2") = (add nuw (i 1) 1 1)) ; c2 is poison
     (br (% "c") label (% "while") label (% "end"))
 
     (label "while")
@@ -829,8 +1006,60 @@
 )
 )
 
+;(traces -->R (term (l_unsw_before regmt memmt "" "" l_unsw_before ())))
 
-(define-term l_unsw_after(
+;; Loop unswitching after, incorrect. Branching on poison is needed for GVN (type of optimization) to be sound
+
+
+;   if(c_2){
+;        while(c){return 2;}
+;    }else{
+;        while(c){return 1;}
+;    }
+;    return 0;
+
+(define-term l_unsw_after_wrong(
+    make_program (
+    (label "entry")
+    ((% "c") = (add nuw (i 1) 0 0))
+    ((% "c2") = (add nuw (i 1) 1 1))
+    (br label (% "if"))
+
+    (label "if")
+    (br (% "c2") label (% "then") label (% "else"))
+
+    (label "then")
+    (br (% "c") label (% "while_then") label (% "end"))
+
+    (label "else")
+    (br (% "c") label (% "while_else") label (% "end"))
+
+    (label "while_then")
+    (ret (i 16) 2)
+
+    (label "while_else")
+    (ret (i 16) 1)
+
+    (label "end")
+    (ret (i 16) 0)
+    )
+
+)
+)
+
+;(traces -->R (term (l_unsw_after_wrong regmt memmt "" "" l_unsw_after_wrong ())))
+
+;; Loop unswitching with freeze, now correct (result must be 0)
+
+;   c_fr = freeze(c2);
+;   if(c_fr){
+;        while(c){return 2;}
+;    }else{
+;        while(c){return 1;}
+;    }
+;    return 0;
+
+(define-term l_unsw_after_right(
     make_program (
     (label "entry")
     ((% "c") = (add nuw (i 1) 0 0))
@@ -860,6 +1089,13 @@
 )
 )
 
+;(traces -->R (term (l_unsw_after_right regmt memmt "" "" l_unsw_after_right ())))
+
+
+
+;; Reverse predication before 
+
+
 (define-term rev_pred_before(
     make_program (
         (label "entry")
@@ -870,8 +1106,37 @@
 
 )
 
-)  
-(define-term rev_pred_after (
+) 
+;(traces -->R (term (rev_pred_before regmt memmt "" "" mt ())))
+
+
+;; Reverse predication after, incorrect
+
+(define-term rev_pred_after_wrong (
+    make_program (
+        (label "entry")
+        ((% "c") = (add nuw (i 1) 1 1))
+        (br (% "c") label (% "true") label (% "false"))
+
+        (label "true")
+        (br label (% "merge"))
+
+        (label "false")
+        (br label (% "merge"))
+
+        (label "merge")
+        ((% "x") = (phi (i 16) [100 "true"] [10 "false"]))
+        (ret (i 16) (% "x"))
+    )
+)
+
+)
+
+;(traces -->R (term (rev_pred_after_wrong regmt memmt "" "" rev_pred_after_wrong ())))
+
+;; Reverse predication after with freeze, now correct
+
+(define-term rev_pred_after_right (
     make_program (
         (label "entry")
         ((% "c") = (add nuw (i 1) 1 1))
@@ -892,95 +1157,12 @@
 
 )
 
-;(redex-match? FREEZE stmt (term ((% "x") = (freeze (4 x (i 16)) (% "fr")))))
 
 
-(define-term fr_vector_p (
-    make_program ( ((% "x") = (freeze (4 x (i 16)) (% "fr"))) )
-    
-)
-
-)
-(define-term fr_vector_reg(
-    make_reg(
-        ((% "fr") ((4 x (i 16)) (poison 43 poison 43)))
-    )
-)
-
-)
+;(traces -->R (term (rev_pred_after_right regmt memmt "" "" rev_pred_after_right ())))
 
 
-(define-term freeze_val (
-    make_program (
-        (label "entry")
-        ((% "c") = (add nuw (i 16) 1 1))
-        ((% "c_fr") = (freeze (i 16) (% "c")))
-        (ret (i 16) (% "c_fr"))
-    )
-))
-
-
-(define-term freeze_ptr_p (
-    make_program (
-        ((% "c_fr") = (freeze (ptr (i 16)) (% "poison")))
-        ((% "ub") = (load (i 16) (ptr (i 16)) (% "c_fr")))
-    )
-))
-
-(define-term freeze_ptr_reg (
-    make_reg (
-        ((% "poison") ((ptr (i 16)) poison))
-    )
-)
-)
-
-(define-term load_vec_p (
-    make_program (
-        (label "entry")
-        (store (4 x (i 16)) (% "vec") (ptr (4 x (i 16))) (% "16"))
-    )
-)
-
-)
-(define-term load_vec_reg (
-    make_reg (
-        ((% "16") ((ptr (4 x (i 16))) 16))
-        ((% "vec") ((4 x (i 16)) (poison poison poison poison)))
-    )
-))
-
-;(redex-match? FREEZE ((len x bty) index mem) (term ((4 x (i 16)) 16 memmt)))
-;(term (lookup_mem memmt 16))
-;(term (has_poison (lookup_mem memmt 16)))
-
-
-
-
-(define-term wid_before (
-    make_program (
-        ((% "a") = (load (i 8) (ptr (i 8)) (% "ptr")))
-        (ret (i 8) (% "a"))
-    )
-))
-
-
-
-(define-term wid_after_wrong (
-    make_program (
-        ((% "a") = (load (i 16) (ptr (i 16)) (% "ptr")))
-        (ret (i 16) (% "a"))
-    )
-))
-
-(define-term wid_after_right (
-    make_program (
-        ((% "a_vec") = (load (2 x (i 8)) (ptr (2 x (i 8))) (% "ptr")))
-        ((% "a") = (extractelement (2 x (i 8)) (% "a_vec") 0))
-        (ret (i 8) (% "a"))
-    )
-)
-
-)
+;; Load widening reg layout, for both bitwidths
 
 (define-term wid_reg_8 (
     make_reg (
@@ -995,6 +1177,7 @@
 )
 
 )
+;; Load widening memory layout
 
 (define-term wid_mem (
     make_mem (
@@ -1003,39 +1186,45 @@
 )
 
 )
+;; Load widening before, loading 8-bit value
+
+(define-term wid_before (
+    make_program (
+        ((% "a") = (load (i 8) (ptr (i 8)) (% "ptr")))
+        (ret (i 8) (% "a"))
+    )
+))
 
 
-(redex-match? FREEZE state (term ((((% "a")
-   =
-   (load
-    (i 16)
-    (ptr (i 16))
-    (% "ptr")))
-  ((ret (i 16) (% "a")) mt))
- (((% "ptr")
-   ((ptr (i 16)) 16))
-  regmt)
- ((16 (0 0 0 0 0 1 1 1))
-  memmt)
- ""
- ""
- mt
- ())))
-;(traces -->R (term (wid_before wid_reg_8 wid_mem "" "" mt ())))
+
+;(traces -->R (term (wid_before wid_reg_8 wid_mem"" "" mt ())))
+
+;; Load widening, converting directly to (i 16), incorrect
+
+(define-term wid_after_wrong (
+    make_program (
+        ((% "a") = (load (i 16) (ptr (i 16)) (% "ptr")))
+        (ret (i 16) (% "a"))
+    )
+))
+
+
 ;(traces -->R (term (wid_after_wrong wid_reg_16 wid_mem "" "" mt ())))
+
+
+;; Load widening, turning (i 16) into (2 x (i 8)), now correct
+
+(define-term wid_after_right (
+    make_program (
+        ((% "a_vec") = (load (2 x (i 8)) (ptr (2 x (i 8))) (% "ptr")))
+        ((% "a") = (extractelement (2 x (i 8)) (% "a_vec") 0))
+        (ret (i 8) (% "a"))
+    )
+)
+)
+
 ;(traces -->R (term (wid_after_right wid_reg_8 wid_mem "" "" mt ())))
 
-(display "Widening result before\n")
-(term (end ,(first (apply-reduction-relation* -->R (term (wid_before wid_reg_8 wid_mem "" "" mt ()))))))
-(display "Incorrect optimization\n")
-(term (end ,(first (apply-reduction-relation* -->R (term (wid_after_wrong wid_reg_16 wid_mem "" "" mt ()))))))
-(display "Correct optimization\n")
-(term (end ,(first (apply-reduction-relation* -->R (term (wid_after_right wid_reg_8 wid_mem "" "" mt ()))))))
-;(traces -->R (term (load_vec_p load_vec_reg memmt "" "" mt ())))
-;(term (eval rev_pred_before))
-;(term (eval rev_pred_after))
-;(term (eval l_unsw_before))
-;(term (eval l_unsw_after))
 
 
 
