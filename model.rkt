@@ -155,7 +155,7 @@
 (define-metafunction FREEZE
   lookup_reg_ty : reg op -> ty
 
-  [(lookup_reg_ty _ constant) (i 16)]
+  [(lookup_reg_ty _ constant) (raise "constant type depends on the context!")]
 
   [(lookup_reg_ty regmt var) 
    (raise ,(printf "Could not find a variable ~a in the register file" (term var)))] 
@@ -182,7 +182,7 @@
 
   ; Still looking for the value in memory
 
-  [(lookup_mem ((index_1 byte_1) memmt ) index__3) (lookup_mem memmt index_3)])
+  [(lookup_mem ((index_1 byte_1) memmt ) index_3) (lookup_mem memmt index_3)])
 
 
 (define-metafunction FREEZE
@@ -273,7 +273,14 @@
      (where index_off ,(remainder (term index) 8))
      (where index_start ,(- (term index) (remainder (term index) 8)))
     ]
+
+    [(store_func (i 1) poison index mem) ((index_start ,(list-set (term byte) (term index_off) (term (down_ty (i 1) poison)))) mem)
+     (where byte (lookup_mem mem ,(- (term index) (remainder (term index) 8))))
+     (where index_off ,(remainder (term index) 8))
+     (where index_start ,(- (term index) (remainder (term index) 8)))
+    ]
     [(store_func (i 8) constant index mem) ((index (down_ty (i 8) constant)) mem)]
+    [(store_func (i 8) poison index mem) ((index (down_ty (i 8) poison)) mem)]
 
     [(store_func (i 16) constant index mem) ((index_2 (down_ty (i 8) constant_2)) ((index (down_ty (i 8) constant_1)) mem)) 
     (where constant_1 ,(bitwise-and (term constant) 255))
@@ -281,7 +288,23 @@
     (where index_2 ,(+ 8 (term index)))
     ]
 
+    [(store_func (i 16) poison index mem) ((index_2 (down_ty (i 8) poison)) ((index (down_ty (i 8) poison)) mem)) 
+     (where index_2 ,(+ 8 (term index)))
+    ]
+
     ; TODO vectors
+
+    [(store_func (0 x bty) () index mem) mem]
+
+    [(store_func (len_1 x bty) (val_1 val_2 ...) index_1 mem_1)
+     (store_func (len_2 x bty) (val_2 ...) index_2 mem_2)
+
+     (side-condition (> (term len_1) 0))
+     (where len_2 ,(- (term len_1) 1))
+     (where index_2 ,(+ (term index_1) (term (bitwidth bty))))
+     (where mem_2 (store_func bty val_1 index_1 mem_1))
+
+    ]
 
 
 )
@@ -455,7 +478,7 @@
     [--> (((var = (freeze (i sz) op)) p_rest) reg mem lbl_1 lbl_2 p nonderef)
      (p_rest ((var ((i sz) ,(random (expt 2 (term sz))))) reg) mem lbl_1 lbl_2 p nonderef)
      (side-condition (redex-match? FREEZE poison (term (lookup_reg_val reg op))))
-     (side-condition (redex-match? FREEZE (i sz) (term (lookup_reg_ty reg op))))
+     (side-condition (term (type_match reg op (i sz))))
     fr_poison]
 
     [--> (((var = (freeze ty_op op)) p_rest) reg mem lbl_1 lbl_2 p nonderef)
@@ -517,6 +540,14 @@
      (side-condition (term (type_match reg op_2 ty)))
      
     sel_2]
+
+    [--> (((var = (extractelement (len x bty) op constant)) p_rest) reg mem lbl_1 lbl_2 p nonderef)
+        (p_rest ((var (bty val)) reg) mem lbl_1 lbl_2 p nonderef)
+
+        (side-condition (term (type_match reg op (len x bty))))
+        (where val ,(list-ref (term (lookup_reg_val reg op)) (term constant)))
+    
+    extr]
 
 
     [--> (((var = (and noattr (i sz) op_1 op_2)) p_rest) reg mem lbl_1 lbl_2 p nonderef)
@@ -665,10 +696,19 @@
     [--> (((store bty op_1 (ptr bty) op_2) p_rest) reg mem lbl_1 lbl_2 p nonderef)
          (p_rest reg (store_func bty (lookup_reg_val reg op_1) (lookup_reg_val reg op_2) mem) lbl_1 lbl_2 p nonderef)
 
-         ;(side-condition (and (term (type_match reg op_1 bty)) (term (type_match reg op_2 (ptr bty)))))
+         (side-condition (and (term (type_match reg op_1 bty)) (term (type_match reg op_2 (ptr bty)))))
          (side-condition (term (aligns (lookup_reg_val reg op_2) (bitwidth bty))))
+         (side-condition (not (redex-match? FREEZE poison (term (lookup_reg_val reg op_2)))))
 
     store]
+
+    [--> (((store (len x bty) op_1 (ptr (len x bty)) op_2) p_rest) reg mem lbl_1 lbl_2 p nonderef)
+         (p_rest reg (store_func (len x bty) (lookup_reg_val reg op_1) (lookup_reg_val reg op_2) mem) lbl_1 lbl_2 p nonderef)
+
+         (side-condition (false? (member (term op_2) (term nonderef))))
+         (side-condition (not (redex-match? FREEZE poison (term (lookup_reg_val reg op_2)))))
+    
+    store_vec_val]
 
     [--> (((store ty op_1 (ptr ty) op_2) p_rest) reg mem lbl_1 lbl_2 p nonderef) ;(load ty (ptr ty) op)
          UB
@@ -676,6 +716,13 @@
          (side-condition (term (type_match reg op_2 (ptr ty))))
          (side-condition (redex-match? FREEZE poison (term (lookup_reg_val reg op_2))))
     store_poison_ptr]  ; (store ty op (ptr ty) op)
+    [--> (((store ty op_1 (ptr ty) op_2) p_rest) reg mem lbl_1 lbl_2 p nonderef) ;(load ty (ptr ty) op)
+         UB
+
+         (side-condition (term (type_match reg op_2 (ptr ty))))
+         (side-condition (false? (false? (member (term op_2) (term nonderef)))))
+         
+    store_nonderef_ptr]  ; (store ty op (ptr ty) op)
 
     ;; Return
     [--> (((ret void) p_rest) reg mem lbl_1 lbl_2 p nonderef)
@@ -890,7 +937,7 @@
 (define-term load_vec_p (
     make_program (
         (label "entry")
-        ((% "poison_vec") = (load (4 x (i 16)) (ptr (4 x (i 16))) (% "16")))
+        (store (4 x (i 16)) (% "vec") (ptr (4 x (i 16))) (% "16"))
     )
 )
 
@@ -898,15 +945,97 @@
 (define-term load_vec_reg (
     make_reg (
         ((% "16") ((ptr (4 x (i 16))) 16))
+        ((% "vec") ((4 x (i 16)) (poison poison poison poison)))
     )
 ))
 
-(redex-match? FREEZE ((len x bty) index mem) (term ((4 x (i 16)) 16 memmt)))
-(term (lookup_mem memmt 16))
+;(redex-match? FREEZE ((len x bty) index mem) (term ((4 x (i 16)) 16 memmt)))
+;(term (lookup_mem memmt 16))
 ;(term (has_poison (lookup_mem memmt 16)))
-(traces -->R (term (load_vec_p load_vec_reg memmt "" "" mt ())))
-(term (eval rev_pred_before))
-(term (eval rev_pred_after))
+
+
+
+
+(define-term wid_before (
+    make_program (
+        ((% "a") = (load (i 8) (ptr (i 8)) (% "ptr")))
+        (ret (i 8) (% "a"))
+    )
+))
+
+
+
+(define-term wid_after_wrong (
+    make_program (
+        ((% "a") = (load (i 16) (ptr (i 16)) (% "ptr")))
+        (ret (i 16) (% "a"))
+    )
+))
+
+(define-term wid_after_right (
+    make_program (
+        ((% "a_vec") = (load (2 x (i 8)) (ptr (2 x (i 8))) (% "ptr")))
+        ((% "a") = (extractelement (2 x (i 8)) (% "a_vec") 0))
+        (ret (i 8) (% "a"))
+    )
+)
+
+)
+
+(define-term wid_reg_8 (
+    make_reg (
+        ((% "ptr") ((ptr (i 8)) 16))
+    )
+))
+
+(define-term wid_reg_16 (
+    make_reg (
+        ((% "ptr") ((ptr (i 16)) 16))
+    )
+)
+
+)
+
+(define-term wid_mem (
+    make_mem (
+        (16 (0 0 0 0 0 1 1 1))
+    )
+)
+
+)
+
+
+(redex-match? FREEZE state (term ((((% "a")
+   =
+   (load
+    (i 16)
+    (ptr (i 16))
+    (% "ptr")))
+  ((ret (i 16) (% "a")) mt))
+ (((% "ptr")
+   ((ptr (i 16)) 16))
+  regmt)
+ ((16 (0 0 0 0 0 1 1 1))
+  memmt)
+ ""
+ ""
+ mt
+ ())))
+;(traces -->R (term (wid_before wid_reg_8 wid_mem "" "" mt ())))
+;(traces -->R (term (wid_after_wrong wid_reg_16 wid_mem "" "" mt ())))
+;(traces -->R (term (wid_after_right wid_reg_8 wid_mem "" "" mt ())))
+
+(display "Widening result before\n")
+(term (end ,(first (apply-reduction-relation* -->R (term (wid_before wid_reg_8 wid_mem "" "" mt ()))))))
+(display "Incorrect optimization\n")
+(term (end ,(first (apply-reduction-relation* -->R (term (wid_after_wrong wid_reg_16 wid_mem "" "" mt ()))))))
+(display "Correct optimization\n")
+(term (end ,(first (apply-reduction-relation* -->R (term (wid_after_right wid_reg_8 wid_mem "" "" mt ()))))))
+;(traces -->R (term (load_vec_p load_vec_reg memmt "" "" mt ())))
+;(term (eval rev_pred_before))
+;(term (eval rev_pred_after))
+;(term (eval l_unsw_before))
+;(term (eval l_unsw_after))
 
 
 

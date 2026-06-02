@@ -101,3 +101,32 @@ label "merge"
 (% "x") = (phi (i 16) [100 "true"] [10 "false"])
 ret (i 16) (% "x")
 ```
+
+
+# Load widening
+
+### Original
+```
+(% "a") = (load (i 16) (ptr (i 16)) (% "ptr"))
+ret (i 16) (% "a")
+```
+
+
+### Transformed incorrect
+
+```
+(% "a") = (load (i 32) (ptr (i 32)) (% "ptr"))
+ret (i 32) (% "a")
+```
+
+
+### Transformed correct
+
+```
+(% "a_vec") = (load (2 x (i 16)) (ptr (2 x (i 16))) (% "ptr"))
+(% "a") = (extractelement (2 x (i 16)) 0)
+ret (i 32) (% "a")
+```
+
+
+
