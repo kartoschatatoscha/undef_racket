@@ -107,25 +107,25 @@ ret (i 16) (% "x")
 
 ### Original
 ```
-(% "a") = (load (i 16) (ptr (i 16)) (% "ptr"))
-ret (i 16) (% "a")
+(% "a") = (load (i 8) (ptr (i 8)) (% "ptr"))
+ret (i 8) (% "a")
 ```
 
 
 ### Transformed incorrect
 
 ```
-(% "a") = (load (i 32) (ptr (i 32)) (% "ptr"))
-ret (i 32) (% "a")
+(% "a") = (load (i 16) (ptr (i 16)) (% "ptr"))
+ret (i 16) (% "a")
 ```
 
 
 ### Transformed correct
 
 ```
-(% "a_vec") = (load (2 x (i 16)) (ptr (2 x (i 16))) (% "ptr"))
-(% "a") = (extractelement (2 x (i 16)) 0)
-ret (i 32) (% "a")
+(% "a_vec") = (load (2 x (i 8)) (ptr (2 x (i 8))) (% "ptr"))
+(% "a") = (extractelement (2 x (i 8)) 0)
+ret (i 8) (% "a")
 ```
 
 
