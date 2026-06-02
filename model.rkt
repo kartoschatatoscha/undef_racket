@@ -811,7 +811,7 @@
 
 ;;;; PRESENTATION INSTRUCTIONS
 
-;; Freezing a poison value
+;; Freezing a poison value ;; Rule fr_poison
 
 (define-term fr_pois_p (
     make_program (
@@ -823,7 +823,7 @@
 
 ;(traces -->R (term (fr_pois_p regmt memmt "" "" mt ())))
 
-;; Freezing 432
+;; Freezing 432 ;; Rule fr_val
 
 (define-term fr_nonpois_p (
     make_program (
@@ -834,7 +834,7 @@
 ;(traces -->R (term (fr_nonpois_p regmt memmt "" "" mt ())))
 
 
-;; Freezing a poison pointer -> nondereferenceable
+;; Freezing a poison pointer -> nondereferenceable  ;; Rules fr_ptr, load_nonderef
 
 (define-term fr_ptr_p (
     make_program (
@@ -846,11 +846,11 @@
 ;(traces -->R (term (fr_ptr_p regmt memmt "" "" mt ())))
 
 
-;; add nuw overflow
+;; add nuw overflow   ;; Rules add_nuw_over, ret_ty
 
 (define-term add_poison_p (
     make_program (
-        ((% "a") = (add nuw (i 16) 65535 3))
+        ((% "a") = (add nuw (i 16) 65535 3))   
         (ret (i 16) (% "a"))
     )
 )
@@ -859,7 +859,7 @@
 
 ;(traces -->R (term (add_poison_p regmt memmt "" "" mt ())))
 
-;; add nuw without overflow
+;; add nuw without overflow   ;; Rule add_nuw
 
 (define-term add_nonpoison_p (
     make_program (
@@ -873,9 +873,9 @@
 ;(traces -->R (term (add_nonpoison_p regmt memmt "" "" mt ())))
 
 
-;; select poison condition
+;; select poison condition ;; Rule sel_poison
 
-(define-term sel_poison_p (
+(define-term sel_poison_p (  
     make_program (
         ((% "a") = (select poison (i 16) 10 20))
         (ret (i 16) (% "a"))
@@ -887,7 +887,7 @@
 ;(traces -->R (term (sel_poison_p regmt memmt "" "" mt ())))
 
 
-;; select first val
+;; select first val  ;; Rule sel_1
 
 (define-term sel_1_p (
     make_program (
@@ -900,9 +900,9 @@
 
 ;(traces -->R (term (sel_1_p regmt memmt "" "" mt ())))
 
-;; select second val
+;; select second val ;; Rule sel_2
 
-(define-term sel_2_p (
+(define-term sel_2_p (   
     make_program (
         ((% "a") = (select 0 (i 16) 10 poison))
         (ret (i 16) (% "a"))
@@ -913,11 +913,11 @@
 ;(traces -->R (term (sel_2_p regmt memmt "" "" mt ())))
 
 
-;; phi value and non-poison
+;; phi value and non-poison  ;; Rules br_lbl, lbl, phi
 
 (define-term phi_poison (
     make_program  (
-        (br label (% "second"))
+        (br label (% "first"))
 
         (label "first")
         (br label (% "end"))
@@ -934,7 +934,7 @@
 
 ;(traces -->R (term (phi_poison regmt memmt "" "" phi_poison ())))
 
-;; branching on poison is UB
+;; branching on poison is UB  ;; Rule br_poison
 
 (define-term br_poison (
     make_program (
@@ -952,6 +952,8 @@
 
 ;(traces -->R (term (br_poison regmt memmt "" "" br_poison ())))
 
+
+;; Branching on non-poison, both cases ;; Rules br_1, br_2
 (define-term br_nonpoison (
     make_program (
         (br 0 label (% "first") label (% "second"))
