@@ -11,8 +11,7 @@
 
 (define-language FREEZE
   
-  ; FIGURE 4
-  ; Building blocks
+  ; Syntax
   (var ::= (% string))
 
   (lbl ::= string)
@@ -24,7 +23,6 @@
   (bit ::= tbit poisonbit)
 
   (byte ::= (bit bit bit bit bit bit bit bit))
-  
 
   (bitvector ::= bit ; i1
              (bit bit ...) ; <len x i1> 
@@ -35,7 +33,6 @@
   )   
 
 
-  ; Syntax
 
   (stmt ::= (var = inst)
         (store ty op (ptr ty) op)
@@ -913,7 +910,7 @@
 ;(traces -->R (term (sel_2_p regmt memmt "" "" mt ())))
 
 
-;; phi value and non-poison  ;; Rules br_lbl, lbl, phi
+;; phi value and non-poison  ;; Rules br_lbl, phi
 
 (define-term phi_poison (
     make_program  (
@@ -956,7 +953,7 @@
 ;; Branching on non-poison, both cases ;; Rules br_1, br_2
 (define-term br_nonpoison (
     make_program (
-        (br 0 label (% "first") label (% "second"))
+        (br 1 label (% "first") label (% "second"))
 
         (label "first")
         (ret (i 16) 1)
